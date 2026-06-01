@@ -43,6 +43,27 @@ public class AdminService
         return true;
     }
 
+    public async Task SetTelegramUserIdAsync(long telegramUserId, CancellationToken ct = default)
+    {
+        var admin = await _db.Admins.FirstOrDefaultAsync(ct);
+        if (admin == null)
+            return;
+        admin.TelegramUserId = telegramUserId;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task ClearTelegramUserIdAsync(CancellationToken ct = default)
+    {
+        var admin = await _db.Admins.FirstOrDefaultAsync(ct);
+        if (admin == null)
+            return;
+        admin.TelegramUserId = null;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<bool> IsTelegramAdminAsync(long telegramUserId, CancellationToken ct = default) =>
+        await _db.Admins.AnyAsync(a => a.TelegramUserId == telegramUserId, ct);
+
     public static string HashPassword(string password)
     {
         var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(password));

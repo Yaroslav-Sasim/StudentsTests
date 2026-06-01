@@ -1,11 +1,17 @@
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using TravelBot.Bot;
 using TravelBot.Data;
 using TravelBot.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, Telegram.Bot.JsonBotSerializerContext.Default);
+});
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
@@ -50,10 +56,23 @@ using (var scope = app.Services.CreateScope())
     await adminService.EnsureAdminExistsAsync(adminPassword);
 }
 
-app.MapPost("/api/telegram/webhook", async (Update update, BotApp botApp) =>
+app.MapPost("/api/telegram/webhook", async (Update update, BotApp botApp, ILogger<Program> logger) =>
 {
-    await botApp.HandleUpdateAsync(update, CancellationToken.None);
-    return Results.Ok();
+    try
+    {
+        if (update.CallbackQuery != null)
+            logger.LogInformation("Callback: {Data}", update.CallbackQuery.Data);
+        else if (update.Message?.Text != null)
+            logger.LogInformation("Message: {Text}", update.Message.Text);
+
+        await botApp.HandleUpdateAsync(update, CancellationToken.None);
+        return Results.Ok();
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Webhook handler failed");
+        return Results.Ok();
+    }
 });
 
 app.MapGet("/", () => "TravelBot is running");
@@ -81,7 +100,9 @@ if (!string.IsNullOrWhiteSpace(webhookBase))
     {
         var bot = app.Services.GetRequiredService<ITelegramBotClient>();
         var webhookUrl = $"{webhookBase.TrimEnd('/')}/api/telegram/webhook";
-        await bot.SetWebhook(webhookUrl);
+        await bot.SetWebhook(
+            webhookUrl,
+            allowedUpdates: [UpdateType.Message, UpdateType.CallbackQuery]);
         app.Logger.LogInformation("Webhook set to {WebhookUrl}", webhookUrl);
     }
     catch (Exception ex)

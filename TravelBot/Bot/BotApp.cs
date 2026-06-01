@@ -44,16 +44,17 @@ public class BotApp
     {
         var chatId = message.Chat.Id;
         var text = message.Text?.Trim() ?? "";
+        var isAdmin = await IsAdminAsync(chatId, message.From?.Id, ct);
 
         // Обработка фото для админа (включая медиа-группы)
-        if (_state.IsAdmin(chatId) && message.Photo != null && message.Photo.Length > 0)
+        if (isAdmin && message.Photo != null && message.Photo.Length > 0)
         {
             await HandleAdminPhotoAsync(chatId, message, ct);
             return;
         }
         
         // Обработка медиа-группы для админа (когда отправлено несколько фото сразу)
-        if (_state.IsAdmin(chatId) && message.MediaGroupId != null)
+        if (isAdmin && message.MediaGroupId != null)
         {
             // Медиа-группы обрабатываются через HandleAdminPhotoAsync для каждого сообщения
             // Но нужно сохранить состояние, чтобы не выходить из режима загрузки
@@ -69,11 +70,12 @@ public class BotApp
         {
             _state.SetAdmin(chatId, false);
             _state.Set<AdminConversationState>(chatId, null);
+            await _admin.ClearTelegramUserIdAsync(ct);
             await RegisterUserAndShowMainMenuAsync(chatId, message.From, ct);
             return;
         }
 
-        if (_state.IsAdmin(chatId))
+        if (isAdmin)
         {
             await HandleAdminMessageAsync(chatId, message, text, ct);
             return;
@@ -95,6 +97,8 @@ public class BotApp
             // Используем проверку пароля из БД вместо пароля из конфига
             if (await _admin.ValidatePasswordAsync(password, ct))
             {
+                if (message.From != null)
+                    await _admin.SetTelegramUserIdAsync(message.From.Id, ct);
                 _state.SetAdmin(chatId, true);
                 await _client.SendMessage(chatId, "Вы вошли как администратор.", cancellationToken: ct);
                 await ShowAdminMenuAsync(chatId, ct);
@@ -214,14 +218,26 @@ public class BotApp
 
     private async Task HandleCallbackAsync(CallbackQuery cq, CancellationToken ct)
     {
-        var chatId = cq.Message!.Chat.Id;
+        if (cq.Message == null)
+        {
+            await _client.AnswerCallbackQuery(cq.Id, cancellationToken: ct);
+            return;
+        }
+
+        var chatId = cq.Message.Chat.Id;
         var data = cq.Data ?? "";
 
         await _client.AnswerCallbackQuery(cq.Id, cancellationToken: ct);
 
-        if (_state.IsAdmin(chatId))
+        if (await IsAdminAsync(chatId, cq.From?.Id, ct))
         {
             await HandleAdminCallbackAsync(chatId, cq, data, ct);
+            return;
+        }
+
+        if (data.StartsWith("a:", StringComparison.Ordinal))
+        {
+            await _client.SendMessage(chatId, "Сессия администратора истекла. Войдите снова: /admin пароль", cancellationToken: ct);
             return;
         }
 
@@ -836,12 +852,27 @@ public class BotApp
 
     #region Admin
 
+    private async Task<bool> IsAdminAsync(long chatId, long? telegramUserId, CancellationToken ct)
+    {
+        if (_state.IsAdmin(chatId))
+            return true;
+
+        if (telegramUserId.HasValue && await _admin.IsTelegramAdminAsync(telegramUserId.Value, ct))
+        {
+            _state.SetAdmin(chatId, true);
+            return true;
+        }
+
+        return false;
+    }
+
     private async Task HandleAdminMessageAsync(long chatId, Message message, string text, CancellationToken ct)
     {
         if (text.Equals("/exit", StringComparison.OrdinalIgnoreCase) || text.Equals("выход", StringComparison.OrdinalIgnoreCase))
         {
             _state.SetAdmin(chatId, false);
             _state.Set<AdminConversationState>(chatId, null);
+            await _admin.ClearTelegramUserIdAsync(ct);
             await _client.SendMessage(chatId, "Вы вышли из режима управления ботом.", cancellationToken: ct);
             // Показываем главное меню пользователя (как при /start)
             await ShowMainMenuAsync(chatId, ct);
@@ -1280,6 +1311,7 @@ public class BotApp
         {
             _state.SetAdmin(chatId, false);
             _state.Set<AdminConversationState>(chatId, null);
+            await _admin.ClearTelegramUserIdAsync(ct);
             await _client.SendMessage(chatId, "Вы вышли из режима управления ботом.", cancellationToken: ct);
             // Показываем главное меню пользователя (как при /start)
             await ShowMainMenuAsync(chatId, ct);
