@@ -23,6 +23,9 @@ public static class DatabaseConnection
 
         var projectRef = configuration["Supabase:ProjectRef"] ?? "ztpllfixhmifirwadcrs";
         var database = configuration["Supabase:Database"] ?? "postgres";
+        // В Supabase одна БД — postgres. Имена вроде TravelBot/TraverBot не существуют.
+        if (!string.Equals(database, "postgres", StringComparison.OrdinalIgnoreCase))
+            database = "postgres";
         var isRender = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RENDER"));
         var usePooler = configuration.GetValue("Supabase:UsePooler", false) || isRender;
 

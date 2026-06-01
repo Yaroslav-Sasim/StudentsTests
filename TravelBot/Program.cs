@@ -56,8 +56,14 @@ using (var scope = app.Services.CreateScope())
     await adminService.EnsureAdminExistsAsync(adminPassword);
 }
 
-app.MapPost("/api/telegram/webhook", async (Update update, BotApp botApp, ILogger<Program> logger) =>
+app.MapPost("/api/telegram/webhook", async (
+    Update update,
+    BotApp botApp,
+    ITelegramBotClient bot,
+    ILogger<Program> logger) =>
 {
+    long? chatId = update.Message?.Chat.Id ?? update.CallbackQuery?.Message?.Chat.Id;
+
     try
     {
         if (update.CallbackQuery != null)
@@ -71,6 +77,23 @@ app.MapPost("/api/telegram/webhook", async (Update update, BotApp botApp, ILogge
     catch (Exception ex)
     {
         logger.LogError(ex, "Webhook handler failed");
+
+        if (chatId is long id)
+        {
+            try
+            {
+                var hint = ex is Microsoft.EntityFrameworkCore.DbUpdateException
+                    ? "⚠️ Не удалось сохранить в базу данных. Проверьте Supabase (БД postgres) и redeploy."
+                    : "⚠️ Произошла ошибка. Попробуйте ещё раз или посмотрите логи на Render.";
+
+                await bot.SendMessage(id, hint);
+            }
+            catch (Exception notifyEx)
+            {
+                logger.LogError(notifyEx, "Failed to notify user about error");
+            }
+        }
+
         return Results.Ok();
     }
 });
@@ -84,6 +107,33 @@ app.MapGet("/health/db", async (AppDbContext db) =>
         return await db.Database.CanConnectAsync()
             ? Results.Ok("Database connected")
             : Results.Problem("Database not connected");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message);
+    }
+});
+
+app.MapGet("/health/db/stats", async (AppDbContext db) =>
+{
+    try
+    {
+        var conn = db.Database.GetDbConnection();
+        await conn.OpenAsync();
+        var dbName = conn.Database;
+
+        return Results.Ok(new
+        {
+            database = dbName,
+            host = conn.DataSource,
+            tourDirections = await db.TourDirections.CountAsync(),
+            tours = await db.Tours.CountAsync(),
+            tourDates = await db.TourDates.CountAsync(),
+            tourImages = await db.TourImages.CountAsync(),
+            bookings = await db.Bookings.CountAsync(),
+            botUsers = await db.BotUsers.CountAsync(),
+            pageContents = await db.PageContents.CountAsync()
+        });
     }
     catch (Exception ex)
     {
