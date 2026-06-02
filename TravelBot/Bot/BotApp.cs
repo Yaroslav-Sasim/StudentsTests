@@ -1008,7 +1008,7 @@ public class BotApp
                         await _client.SendMessage(chatId, "Ошибка: не выбран тур. Вернитесь в меню редактирования.", cancellationToken: ct);
                         break;
                     }
-                    adminData.TempDate = parsedDate;
+                    adminData.TempDate = DateTimeHelper.ToUtcDate(parsedDate);
                     adminData.Step = AdminStep.WaitTourDatePlaces;
                     _state.Set(chatId, adminData);
                     var cancelPlacesButton = new[] { InlineKeyboardButton.WithCallbackData("❌ Отмена", "a:tour:date:cancel:" + adminData.TourId.Value) };
@@ -1043,7 +1043,13 @@ public class BotApp
                 }
                 if (int.TryParse(text.Trim(), out var places) && places > 0 && adminData.TempDate.HasValue)
                 {
-                    _db.TourDates.Add(new TourDate { TourId = adminData.TourId.Value, Date = adminData.TempDate.Value.Date, PlacesTotal = places, PlacesBooked = 0 });
+                    _db.TourDates.Add(new TourDate
+                    {
+                        TourId = adminData.TourId.Value,
+                        Date = DateTimeHelper.ToUtcDate(adminData.TempDate.Value),
+                        PlacesTotal = places,
+                        PlacesBooked = 0
+                    });
                     await _db.SaveChangesAsync(ct);
                     _state.Set<AdminConversationState>(chatId, null);
                     await _client.SendMessage(chatId, "Дата добавлена. Тур появится в календаре.", cancellationToken: ct);

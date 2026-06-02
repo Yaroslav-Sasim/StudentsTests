@@ -6,6 +6,8 @@ using TravelBot.Bot;
 using TravelBot.Data;
 using TravelBot.Services;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -82,8 +84,11 @@ app.MapPost("/api/telegram/webhook", async (
         {
             try
             {
+                var inner = ex.InnerException?.Message ?? ex.Message;
+                logger.LogError("User-facing error detail: {Detail}", inner);
+
                 var hint = ex is Microsoft.EntityFrameworkCore.DbUpdateException
-                    ? "⚠️ Не удалось сохранить в базу данных. Проверьте Supabase (БД postgres) и redeploy."
+                    ? "⚠️ Не удалось сохранить в базу данных. Попробуйте ещё раз после обновления бота."
                     : "⚠️ Произошла ошибка. Попробуйте ещё раз или посмотрите логи на Render.";
 
                 await bot.SendMessage(id, hint);
